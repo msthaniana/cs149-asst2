@@ -55,9 +55,13 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->numThreads = num_threads;
+    this->mutex_ = new std::mutex();
 }
 
-TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
+TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {
+    delete this->mutex_;
+}
 
 void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
 
@@ -67,10 +71,43 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
+    std::thread workers[this->numThreads];
+    this->index_ = 0;
+    this->my_counter = 0;
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+
+    //Dynamic with mutexes
+    // for (int i = 0; i < this->numThreads; i++) {
+    //     workers[i] = std::thread([&]{
+    //         while (true){
+    //             this->mutex_->lock();
+    //             int ind = this->index_++;
+    //             this->mutex_->unlock();
+    //             if (ind >= num_total_tasks){break;}
+    //             // printf("threadID = %d, index = %d \n",i, ind);
+    //             runnable->runTask(ind, num_total_tasks);
+    //         }
+    //     });
+    // }
+
+    //Dynamic with atomic variable - slightly better but does not matter
+    for (int i = 0; i < this->numThreads; i++) {
+        workers[i] = std::thread([&]{
+            while (true){
+                int ind = this->my_counter.fetch_add(1);
+                if (ind >= num_total_tasks){break;}
+                // printf("threadID = %d, index = %d \n",i, ind);
+                runnable->runTask(ind, num_total_tasks);
+            }
+        });
     }
+
+
+    for (int i = 0; i < this->numThreads; i++) {
+        workers[i].join();
+    }
+
+
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,

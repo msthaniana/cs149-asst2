@@ -2,6 +2,10 @@
 #define _TASKSYS_H
 
 #include "itasksys.h"
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <stdio.h>
 
 /*
  * TaskSystemSerial: This class is the student's implementation of a
@@ -27,6 +31,10 @@ class TaskSystemSerial: public ITaskSystem {
  */
 class TaskSystemParallelSpawn: public ITaskSystem {
     public:
+        int numThreads;
+        std::mutex* mutex_;
+        std::atomic<int> my_counter;
+        int index_;
         TaskSystemParallelSpawn(int num_threads);
         ~TaskSystemParallelSpawn();
         const char* name();
