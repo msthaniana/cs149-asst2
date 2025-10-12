@@ -138,9 +138,33 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->numThreads = num_threads;
+    workers = new std::thread[num_threads];
+    this->runThreads = 1;
+    this->numTasks = -1;
+
+    for (int i = 0; i < this->numThreads; i++) {
+        workers[i] = std::thread([&]{
+            while (this->runThreads){
+                int ind = this->numTasks.fetch_sub(1); //happening even when the run is waiting.
+                if ( ind >= 0){
+                    // printf("threadID = %d, index = %d \n",i, ind);
+                    taskRunnable->runTask(ind, this->totalTasks);
+                } else{
+                    this->threadsDone.fetch_add(1); //happening even when the run is waiting.
+                    // printf("threads_done = %d \n", done);
+                }
+            }
+        });
+    }
 }
 
-TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
+TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    this->runThreads = 0;
+    for (int i = 0; i < this->numThreads; i++) {
+        workers[i].join();
+    }
+}
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
 
@@ -151,9 +175,15 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+    this->totalTasks = num_total_tasks;
+    this->taskRunnable = runnable;
+    this->numTasks = num_total_tasks-1;
+    this->threadsDone = 0;
+
+    // printf("starting a run task totalTasks=%d and numTasks=%d \n",this->totalTasks, this->numTasks.load());
+
+    while(this->threadsDone < this->numThreads){};
+    // printf("run task done \n");
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,

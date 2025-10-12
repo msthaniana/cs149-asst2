@@ -5,6 +5,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <bitset>
 #include <stdio.h>
 
 /*
@@ -51,6 +52,14 @@ class TaskSystemParallelSpawn: public ITaskSystem {
  * documentation of the ITaskSystem interface.
  */
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
+    private:
+        std::atomic<int> numTasks;
+        int numThreads;
+        std::thread* workers;
+        bool runThreads;
+        int totalTasks;
+        IRunnable* taskRunnable;
+        std::atomic<int> threadsDone;
     public:
         TaskSystemParallelThreadPoolSpinning(int num_threads);
         ~TaskSystemParallelThreadPoolSpinning();
