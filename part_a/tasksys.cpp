@@ -233,6 +233,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->totalTasks = 0;
     this->threadsDone = 0;
     this->thread_mutex_ = new std::mutex();
+    this->taskRunnable = nullptr;
 
     // Thread 0: signals other threads when work is ready
     workers[0] = std::thread([&]{
@@ -296,6 +297,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     delete this->mutex_;
     delete this->condition_variable_;
     delete this->thread_mutex_;
+    delete[] workers;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -307,14 +309,19 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
+    this->mutex_->lock();
     this->tasksDone = 0;
     this->threadsDone = 0;
     this->totalTasks = num_total_tasks;
     this->taskRunnable = runnable;
     this->numTasks = num_total_tasks-1;
+    this->mutex_->unlock();
 
     // Once each thread finishes a task, it increments the number of tasksDone
     while(this->tasksDone < this->totalTasks || this->threadsDone < this->numThreads-1){};
+    this->mutex_->lock();
+    this->taskRunnable = nullptr;
+    this->mutex_->unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
