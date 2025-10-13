@@ -53,13 +53,14 @@ class TaskSystemParallelSpawn: public ITaskSystem {
  */
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     private:
-        std::atomic<int> numTasks;
+        int numTasks;
         int numThreads;
+        std::mutex* mutex_;
         std::thread* workers;
         bool runThreads;
         int totalTasks;
         IRunnable* taskRunnable;
-        std::atomic<int> threadsDone;
+        std::atomic<int> tasksDone;
     public:
         TaskSystemParallelThreadPoolSpinning(int num_threads);
         ~TaskSystemParallelThreadPoolSpinning();

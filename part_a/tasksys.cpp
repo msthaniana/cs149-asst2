@@ -142,17 +142,21 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     workers = new std::thread[num_threads];
     this->runThreads = 1;
     this->numTasks = -1;
+    this->mutex_ = new std::mutex();
 
     for (int i = 0; i < this->numThreads; i++) {
         workers[i] = std::thread([&]{
             while (this->runThreads){
-                int ind = this->numTasks.fetch_sub(1); //happening even when the run is waiting.
-                if ( ind >= 0){
-                    // printf("threadID = %d, index = %d \n",i, ind);
+                int ind = -1;
+                // Check if any work is available
+                this->mutex_->lock();
+                if (this->numTasks >= 0)
+                    ind = this->numTasks--;
+                this->mutex_->unlock();
+                // If work available, run task
+                if (ind >= 0) {
                     taskRunnable->runTask(ind, this->totalTasks);
-                } else{
-                    this->threadsDone.fetch_add(1); //happening even when the run is waiting.
-                    // printf("threads_done = %d \n", done);
+                    this->tasksDone.fetch_add(1);
                 }
             }
         });
@@ -175,15 +179,13 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
+    this->tasksDone = 0;
     this->totalTasks = num_total_tasks;
     this->taskRunnable = runnable;
     this->numTasks = num_total_tasks-1;
-    this->threadsDone = 0;
 
-    // printf("starting a run task totalTasks=%d and numTasks=%d \n",this->totalTasks, this->numTasks.load());
-
-    while(this->threadsDone < this->numThreads){};
-    // printf("run task done \n");
+    // Once each thread finishes a task, it increments the number of tasksDone
+    while(this->tasksDone < this->totalTasks){};
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
