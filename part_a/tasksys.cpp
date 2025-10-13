@@ -168,6 +168,7 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
     for (int i = 0; i < this->numThreads; i++) {
         workers[i].join();
     }
+    delete this->mutex_;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -216,6 +217,62 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->numThreads = num_threads;
+    workers = new std::thread[num_threads];
+    this->runThreads = 1;
+    this->numTasks = -1;
+    this->mutex_ = new std::mutex();
+    this->condition_variable_ = new std::condition_variable();
+    this->tasksDone = 0;
+    this->totalTasks = 0;
+    this->threadsDone = 0;
+    this->thread_mutex_ = new std::mutex();
+
+    // Thread 0: signals other threads when work is ready
+    workers[0] = std::thread([&]{
+        while (this->runThreads){
+            int ind = -2;
+            // Check if any work is available
+            this->mutex_->lock();
+            if (this->numTasks >= 0)
+                ind = this->numTasks--;
+            this->mutex_->unlock();
+            // If this is the first task, wake up other threads
+            if (ind == this->totalTasks-1) {
+                this->condition_variable_->notify_all();
+            }
+            // If work available, run task
+            if (ind >= 0) {
+                taskRunnable->runTask(ind, this->totalTasks);
+                this->tasksDone.fetch_add(1);
+            }
+        }
+    });
+
+    // All other threads wait for signal from Thread 0
+    for (int i = 1; i < this->numThreads; i++) {
+        workers[i] = std::thread([&, i]{
+            while (this->runThreads){
+                int ind = -1;
+                // Check if any work is available
+                this->mutex_->lock();
+                if (this->numTasks >= 0)
+                    ind = this->numTasks--;
+                this->mutex_->unlock();
+                // If work available, run task; else, put thread to sleep
+                if (ind >= 0) {
+                    taskRunnable->runTask(ind, this->totalTasks);
+                    this->tasksDone.fetch_add(1);
+                } else {
+                    std::unique_lock<std::mutex> lk(*this->thread_mutex_);
+                    this->threadsDone.fetch_add(1);
+                    this->condition_variable_->wait(lk);
+                    lk.unlock();
+                }
+            }
+        });
+    }
+    while (this->threadsDone < num_threads-1) {};
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -225,6 +282,14 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    this->runThreads = 0;
+    this->condition_variable_->notify_all();
+    for (int i = 0; i < this->numThreads; i++) {
+        workers[i].join();
+    }
+    delete this->mutex_;
+    delete this->condition_variable_;
+    delete this->thread_mutex_;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
@@ -236,9 +301,14 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
-    }
+    this->tasksDone = 0;
+    this->threadsDone = 0;
+    this->totalTasks = num_total_tasks;
+    this->taskRunnable = runnable;
+    this->numTasks = num_total_tasks-1;
+
+    // Once each thread finishes a task, it increments the number of tasksDone
+    while(this->tasksDone < this->totalTasks || this->threadsDone < this->numThreads-1){};
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,

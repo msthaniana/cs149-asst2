@@ -6,6 +6,7 @@
 #include <mutex>
 #include <atomic>
 #include <bitset>
+#include <condition_variable>
 #include <stdio.h>
 
 /*
@@ -78,6 +79,18 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
  * itasksys.h for documentation of the ITaskSystem interface.
  */
 class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
+    private:
+        int numTasks;
+        int numThreads;
+        std::mutex* mutex_;
+        std::mutex* thread_mutex_;
+        std::thread* workers;
+        bool runThreads;
+        int totalTasks;
+        IRunnable* taskRunnable;
+        std::atomic<int> tasksDone;
+        std::atomic<int> threadsDone;
+	std::condition_variable* condition_variable_;
     public:
         TaskSystemParallelThreadPoolSleeping(int num_threads);
         ~TaskSystemParallelThreadPoolSleeping();
