@@ -143,6 +143,7 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     this->runThreads = 1;
     this->numTasks = -1;
     this->mutex_ = new std::mutex();
+    this->taskRunnable = nullptr;
 
     for (int i = 0; i < this->numThreads; i++) {
         workers[i] = std::thread([&]{
@@ -169,6 +170,7 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
         workers[i].join();
     }
     delete this->mutex_;
+    delete[] workers;
 }
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
@@ -179,14 +181,18 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-
+    this->mutex_->lock();
     this->tasksDone = 0;
     this->totalTasks = num_total_tasks;
     this->taskRunnable = runnable;
     this->numTasks = num_total_tasks-1;
+    this->mutex_->unlock();
 
     // Once each thread finishes a task, it increments the number of tasksDone
-    while(this->tasksDone < this->totalTasks){};
+    while(this->tasksDone < this->totalTasks){};//spinning here
+    this->mutex_->lock();
+    this->taskRunnable = nullptr;
+    this->mutex_->unlock();
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
