@@ -83,14 +83,14 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         int numTasks;
         int numThreads;
         std::mutex* mutex_;
-        std::mutex* thread_mutex_;
         std::thread* workers;
         bool runThreads;
         int totalTasks;
         IRunnable* taskRunnable;
         std::atomic<int> tasksDone;
         std::atomic<int> threadsDone;
-	std::condition_variable* condition_variable_;
+        std::condition_variable* work_avail_cond_;
+        std::condition_variable* tasks_done_cond_; 
     public:
         TaskSystemParallelThreadPoolSleeping(int num_threads);
         ~TaskSystemParallelThreadPoolSleeping();
