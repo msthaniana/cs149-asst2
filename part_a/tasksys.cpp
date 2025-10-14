@@ -251,6 +251,9 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 if (ind > 0) this->work_avail_cond_->notify_all();
                 taskRunnable->runTask(ind, this->totalTasks);
                 this->tasksDone.fetch_add(1);
+                // Notify caller function if done condition is met
+                if (this->tasksDone.load() == this->totalTasks)
+                    this->tasks_done_cond_->notify_all();
             }
         }
     });
@@ -277,11 +280,13 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 if (ind >= 0) {
                     taskRunnable->runTask(ind, this->totalTasks);
                     this->tasksDone.fetch_add(1);
+                    // Notify caller function if done condition is met
+                    if (this->tasksDone.load() == this->totalTasks)
+                        this->tasks_done_cond_->notify_all();
                 }
             }
         });
     }
-    while (this->threadsDone < num_threads-1) {};
 }
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
@@ -291,7 +296,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
-    while (this->threadsDone < this->numThreads-1) {};
+
     this->mutex_->lock();
     this->runThreads = 0;
     this->mutex_->unlock();
@@ -319,11 +324,11 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     this->totalTasks = num_total_tasks;
     this->taskRunnable = runnable;
     this->numTasks = num_total_tasks-1;
-    lk.unlock();
 
-    // Once each thread finishes a task, it increments the number of tasksDone
-    while (this->tasksDone < this->totalTasks) {};
-    lk.lock();
+    // Put run() to sleep until all tasks are done
+    this->tasks_done_cond_->wait(lk);
+
+    // Once awake, finish run()
     this->taskRunnable = nullptr;
     lk.unlock();
 }
