@@ -47,71 +47,6 @@ typedef struct {
     double time;
 } TestResults;
 
-/*
- * ==================================================================
- *  Skeleton task definition and test definition. Use this to create
- *  your own test, but feel free to modify or delete existing parts of
- *  the skeleton as needed. Look at some of the below task definitions
- *  and the corresponding test definitions for inspiration.
- *  `class SimpleMultiplyTask` and `simpleTest` are a good simple
- *  example.
- * ==================================================================
-*/
-/*
- * Implement your task here
-*/
-class YourTask : public IRunnable {
-    public:
-        YourTask() {}
-        ~YourTask() {}
-        void runTask(int task_id, int num_total_tasks) {}
-};
-/*
- * Implement your test here. Call this function from a wrapper that passes in
- * do_async and num_elements. See `simpleTest`, `simpleTestSync`, and
- * `simpleTestAsync` as an example.
- */
-TestResults yourTest(ITaskSystem* t, bool do_async, int num_elements, int num_bulk_task_launches) {
-    // TODO: initialize your input and output buffers
-    int* output = new int[num_elements];
-
-    // TODO: instantiate your bulk task launches
-
-    // Run the test
-    double start_time = CycleTimer::currentSeconds();
-    if (do_async) {
-        // TODO:
-        // initialize dependency vector
-        // make calls to t->runAsyncWithDeps and push TaskID to dependency vector
-        // t->sync() at end
-    } else {
-        // TODO: make calls to t->run
-    }
-    double end_time = CycleTimer::currentSeconds();
-
-    // Correctness validation
-    TestResults results;
-    results.passed = true;
-
-    for (int i=0; i<num_elements; i++) {
-        int value = 0; // TODO: initialize value
-        for (int j=0; j<num_bulk_task_launches; j++) {
-            // TODO: update value as expected
-        }
-
-        int expected = value;
-        if (output[i] != expected) {
-            results.passed = false;
-            printf("%d: %d expected=%d\n", i, output[i], expected);
-            break;
-        }
-    }
-    results.time = end_time - start_time;
-
-    delete [] output;
-
-    return results;
-}
 
 /*
  * ==================================================================
@@ -150,6 +85,97 @@ class SimpleMultiplyTask : public IRunnable {
                 array_[i] = multiply_task(3, array_[i]);
         }
 };
+
+
+
+//TODO: Need to make this better rather than just being a copy of the other taskṣ
+/*
+ * ==================================================================
+ *  Skeleton task definition and test definition. Use this to create
+ *  your own test, but feel free to modify or delete existing parts of
+ *  the skeleton as needed. Look at some of the below task definitions
+ *  and the corresponding test definitions for inspiration.
+ *  `class SimpleMultiplyTask` and `simpleTest` are a good simple
+ *  example.
+ * ==================================================================
+*/
+/*
+ * Implement your task here
+*/
+class YourTask : public IRunnable {
+    public:
+        YourTask() {}
+        ~YourTask() {}
+        void runTask(int task_id, int num_total_tasks) {}
+};
+/*
+ * Implement your test here. Call this function from a wrapper that passes in
+ * do_async and num_elements. See `simpleTest`, `simpleTestSync`, and
+ * `simpleTestAsync` as an example.
+ */
+TestResults yourTest(ITaskSystem* t, bool do_async) {
+    // TODO: initialize your input and output buffers
+    int num_elements_per_task = 2;
+    int num_tasks = 3;
+    int num_elements = num_elements_per_task * num_tasks;
+    int num_bulk_task_launches = 2;
+
+    int* output = new int[num_elements];
+
+    for (int i=0; i<num_elements; i++) {
+        output[i] = i + 1;
+    }
+
+    // TODO: instantiate your bulk task launches
+    SimpleMultiplyTask first = SimpleMultiplyTask(num_elements, output);
+    SimpleMultiplyTask second = SimpleMultiplyTask(num_elements, output);
+
+    // Run the test
+    double start_time = CycleTimer::currentSeconds();
+    if (do_async) {
+        // TODO:
+        std::vector<TaskID> emptyDeps;
+        t->runAsyncWithDeps(&first, num_tasks, emptyDeps);
+        t->runAsyncWithDeps(&second, num_tasks, emptyDeps);
+        t->sync();
+    } else {
+        // TODO: make calls to t->run
+        t->run(&first, num_tasks);
+        t->run(&second, num_tasks);
+    }
+    double end_time = CycleTimer::currentSeconds();
+
+    // Correctness validation
+    TestResults results;
+    results.passed = true;
+
+    for (int i=0; i<num_elements; i++) {
+        int value = i + 1; // TODO: initialize value
+        for (int j=0; j<num_bulk_task_launches; j++) {
+            // TODO: update value as expected
+            value = SimpleMultiplyTask::multiply_task(3, value);
+        }
+
+        int expected = value;
+        if (output[i] != expected) {
+            results.passed = false;
+            printf("%d: %d expected=%d\n", i, output[i], expected);
+            break;
+        }
+    }
+    results.time = end_time - start_time;
+
+    delete [] output;
+
+    return results;
+}
+TestResults myTestSync(ITaskSystem* t) {
+    return yourTest(t, false);
+}
+
+TestResults myTestAsync(ITaskSystem* t) {
+    return yourTest(t, true);
+}
 
 /*
  * Each task computes an output list of accumulated counters. Each counter
