@@ -136,14 +136,21 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->numThreads = num_threads;
     workers = new std::thread[num_threads];
     this->runThreads = 1;
-    this->numTasks = -1;
+    // this->numTasks = -1;
     this->mutex_ = new std::mutex();
     this->work_avail_cond_ = new std::condition_variable();
     this->tasks_done_cond_ = new std::condition_variable();
     this->tasksDone = 0;
-    this->totalTasks = 0;
+    // this->totalTasks = 0;
     this->threadsDone = 0;
-    this->taskRunnable = nullptr;
+    // this->taskRunnable = nullptr;
+    this->taskId = 0;
+
+    std::vector<TaskID>* deps = nullptr;
+
+    wait_q.push(WorkerQ{-1, nullptr, 0, -1, *deps});
+    ready_q.push(WorkerQ{-1, nullptr, 0, -1, *deps});
+
 
     // Thread 0: signals other threads when work is ready
     workers[0] = std::thread([&]{
@@ -152,17 +159,17 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
             // Check if any work is available
             this->mutex_->lock();
-            if (this->numTasks >= 0)
-                ind = this->numTasks--;
+            if (ready_q.front().num_tasks >= 0)
+                ind = ready_q.front().num_tasks--;
             this->mutex_->unlock();
 
             // If work available, run task
             if (ind >= 0) {
                 if (ind > 0) this->work_avail_cond_->notify_all();
-                taskRunnable->runTask(ind, this->totalTasks);
+                ready_q.front().runnable->runTask(ind, ready_q.front().total_num_tasks);
                 this->tasksDone.fetch_add(1);
                 // Notify caller function if done condition is met
-                if (this->tasksDone.load() == this->totalTasks){
+                if (this->tasksDone.load() == ready_q.front().total_num_tasks){
                     this->tasks_done_cond_->notify_all();
                 }
             }
@@ -180,19 +187,19 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 // Check if any work is available
                 lk.lock();
                 this->threadsDone.fetch_add(1);
-                while (this->numTasks < 0 && this->runThreads) {
+                while (ready_q.front().num_tasks < 0 && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
                 }
                 this->threadsDone.fetch_sub(1);
-                ind = this->numTasks--;
+                ind = ready_q.front().num_tasks--;
                 lk.unlock();
 
                 // If work available, run task
                 if (ind >= 0) {
-                    taskRunnable->runTask(ind, this->totalTasks);
+                    ready_q.front().runnable->runTask(ind, ready_q.front().total_num_tasks);
                     this->tasksDone.fetch_add(1);
                     // Notify caller function if done condition is met
-                    if (this->tasksDone.load() == this->totalTasks){
+                    if (this->tasksDone.load() == ready_q.front().total_num_tasks){
                         this->tasks_done_cond_->notify_all();
                     }
 
@@ -249,9 +256,15 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     std::unique_lock<std::mutex> lk(*this->mutex_);
     this->lk_main_thread = &lk;
     this->tasksDone = 0;
-    this->totalTasks = num_total_tasks;
-    this->taskRunnable = runnable;
-    this->numTasks = num_total_tasks-1;
+
+    //this all is not needed
+    // this->totalTasks = num_total_tasks;
+    // this->taskRunnable = runnable;
+    // this->numTasks = num_total_tasks-1;
+    //this all is not needed anymore
+
+    wait_q.push(WorkerQ{this->taskId++, runnable, num_total_tasks, num_total_tasks-1, deps});
+    ready_q.push(WorkerQ{this->taskId++, runnable, num_total_tasks, num_total_tasks-1, deps});
 
     //this may not work in this case as we want to return to the caller immediately
     // Put run() to sleep until all tasks are done
@@ -259,7 +272,7 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 
 
     // // Once awake, finish run()
-    // this->taskRunnable = nullptr;
+    // ready_q.front().runnable = nullptr;
     // lk.unlock();
 
     return 0;
@@ -274,8 +287,11 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
 
 
     // Once awake, finish run()
-    this->taskRunnable = nullptr;
+    ready_q.front().runnable = nullptr;
     lk_main_thread->unlock();
+
+    ready_q.pop();
+    wait_q.pop();
 
     return;
 }
