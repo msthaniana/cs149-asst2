@@ -166,7 +166,13 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 this->tasksDone.fetch_add(1);
                 // Notify caller function if done condition is met
                 if (this->tasksDone.load() == this->myWorker.total_num_tasks){
-                    this->tasks_done_cond_->notify_all();
+                    printf("TaskID being popped %d \n",ready_q.front().task_id);
+                    ready_q.pop_front();//done with this task;
+                    if (ready_q.empty()) //this means no more tasks are left to be done
+                        this->tasks_done_cond_->notify_all();
+                    else {
+                        this->myWorker = ready_q.front();
+                    }
                 }
             }
         }
@@ -196,7 +202,13 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     this->tasksDone.fetch_add(1);
                     // Notify caller function if done condition is met
                     if (this->tasksDone.load() == this->myWorker.total_num_tasks){
-                        this->tasks_done_cond_->notify_all();
+                        printf("TaskID being popped %d \n",ready_q.front().task_id);
+                        ready_q.pop_front();//done with this task;
+                        if (ready_q.empty())
+                            this->tasks_done_cond_->notify_all();
+                        else {
+                            this->myWorker = ready_q.front();
+                        }
                     }
 
                 }
@@ -233,11 +245,10 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // method in Parts A and B.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-
     this->lk_main_thread = std::unique_lock<std::mutex> {*this->mutex_};
     std::vector<TaskID>* deps = nullptr;
-    ready_q.pop_front(); //pop the previous task. Since this is async case
     runAsyncWithDeps(runnable, num_total_tasks, *deps);
+    this->myWorker = ready_q.front();
 
     sync();
 }
@@ -251,9 +262,12 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     //
 
     this->tasksDone = 0;
-
     ready_q.push_back({this->taskId++, runnable, num_total_tasks, num_total_tasks-1, &deps});
-    this->myWorker = ready_q.front();
+    if(ready_q.front().task_id == -1) {
+        printf("TaskID being popped %d \n",ready_q.front().task_id);
+        ready_q.pop_front();//popping the inital element that was added for initial values
+        this->myWorker = ready_q.front();//this has to be done only the first time, correspondingly this will be assigned when the task finishes
+    }
 
     return 0;
 }
