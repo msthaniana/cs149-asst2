@@ -3,7 +3,7 @@
 
 #include "itasksys.h"
 #include <thread>
-#include <queue>
+#include <list>
 #include <mutex>
 #include <atomic>
 #include <bitset>
@@ -65,7 +65,7 @@ typedef struct {
     IRunnable* runnable;
     int total_num_tasks;
     int num_tasks;
-    const std::vector<TaskID> deps;
+    const std::vector<TaskID>* deps;
 } WorkerQ;
 
 /*
@@ -76,21 +76,19 @@ typedef struct {
  */
 class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
     private:
-        int numTasks;
         int numThreads;
         std::mutex* mutex_;
         std::thread* workers;
         bool runThreads;
-        int totalTasks;
-        IRunnable* taskRunnable;
         std::atomic<int> tasksDone;
         std::atomic<int> threadsDone;
         std::condition_variable* work_avail_cond_;
         std::condition_variable* tasks_done_cond_;
-        std::unique_lock<std::mutex>* lk_main_thread;
+        std::unique_lock<std::mutex> lk_main_thread;
         int taskId;
-        std::queue<WorkerQ> wait_q;
-        std::queue<WorkerQ> ready_q;
+        std::list<WorkerQ> ready_q;
+        WorkerQ myWorker;
+
     public:
         TaskSystemParallelThreadPoolSleeping(int num_threads);
         ~TaskSystemParallelThreadPoolSleeping();
