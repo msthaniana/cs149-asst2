@@ -88,7 +88,6 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         int totalTasks;
         IRunnable* taskRunnable;
         std::atomic<int> tasksDone;
-        std::atomic<int> threadsDone;
         std::condition_variable* work_avail_cond_;
         std::condition_variable* tasks_done_cond_; 
     public:

@@ -232,47 +232,19 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->tasks_done_cond_ = new std::condition_variable();
     this->tasksDone = 0;
     this->totalTasks = 0;
-    this->threadsDone = 0;
     this->taskRunnable = nullptr;
 
-    // Thread 0: signals other threads when work is ready
-    workers[0] = std::thread([&]{
-        while (this->runThreads){
-            int ind = -1;
-
-            // Check if any work is available
-            this->mutex_->lock();
-            if (this->numTasks >= 0)
-                ind = this->numTasks--;
-            this->mutex_->unlock();
-
-            // If work available, run task
-            if (ind >= 0) {
-                if (ind > 0) this->work_avail_cond_->notify_all();
-                taskRunnable->runTask(ind, this->totalTasks);
-                this->tasksDone.fetch_add(1);
-                // Notify caller function if done condition is met
-                if (this->tasksDone.load() == this->totalTasks)
-                    this->tasks_done_cond_->notify_all();
-            }
-        }
-    });
-
-    // All other threads wait for signal from Thread 0
-    for (int i = 1; i < this->numThreads; i++) {
+    // All threads sleep until woken up by the main run()
+    for (int i = 0; i < this->numThreads; i++) {
         workers[i] = std::thread([&, i]{
-            std::unique_lock<std::mutex> lk(*this->mutex_);
-            lk.unlock();
             while (this->runThreads){
                 int ind = -1;
 
                 // Check if any work is available
-                lk.lock();
-                this->threadsDone.fetch_add(1);
+                std::unique_lock<std::mutex> lk(*this->mutex_);
                 while (this->numTasks < 0 && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
                 }
-                this->threadsDone.fetch_sub(1);
                 ind = this->numTasks--;
                 lk.unlock();
 
@@ -324,9 +296,16 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     this->totalTasks = num_total_tasks;
     this->taskRunnable = runnable;
     this->numTasks = num_total_tasks-1;
+    lk.unlock();
+
+    // Notify threads that work is available
+    this->work_avail_cond_->notify_all();
 
     // Put run() to sleep until all tasks are done
-    this->tasks_done_cond_->wait(lk);
+    lk.lock();
+    while (this->tasksDone.load() < this->totalTasks) {
+        this->tasks_done_cond_->wait(lk);
+    }
 
     // Once awake, finish run()
     this->taskRunnable = nullptr;
