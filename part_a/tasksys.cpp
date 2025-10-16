@@ -237,11 +237,23 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     // All threads sleep until woken up by the main run()
     for (int i = 0; i < this->numThreads; i++) {
         workers[i] = std::thread([&, i]{
+            int ind = -1;
             while (this->runThreads){
-                int ind = -1;
-
-                // Check if any work is available
+                // Request mutex
                 std::unique_lock<std::mutex> lk(*this->mutex_);
+
+                // Increment tasksDone if previous iteration completed task
+                if (ind >= 0) {
+                    this->tasksDone++;
+                    // Wake up caller thread if done condition is met
+                    if (this->tasksDone == this->totalTasks) {
+                        lk.unlock();
+                        this->tasks_done_cond_->notify_all();
+                        lk.lock();
+                    }
+                }
+
+                // Poll for new work available
                 while (this->numTasks < 0 && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
                 }
@@ -251,10 +263,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 // If work available, run task
                 if (ind >= 0) {
                     taskRunnable->runTask(ind, this->totalTasks);
-                    this->tasksDone.fetch_add(1);
-                    // Notify caller function if done condition is met
-                    if (this->tasksDone.load() == this->totalTasks)
-                        this->tasks_done_cond_->notify_all();
                 }
             }
         });
@@ -303,7 +311,7 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
 
     // Put run() to sleep until all tasks are done
     lk.lock();
-    while (this->tasksDone.load() < this->totalTasks) {
+    while (this->tasksDone < this->totalTasks) {
         this->tasks_done_cond_->wait(lk);
     }
 
