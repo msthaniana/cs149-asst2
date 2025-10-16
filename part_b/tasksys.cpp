@@ -140,77 +140,47 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->work_avail_cond_ = new std::condition_variable();
     this->tasks_done_cond_ = new std::condition_variable();
     this->tasksDone = 0;
-    this->threadsDone = 0;
     this->taskId = 0;
+    this->myWorker = {-1, nullptr, 0, -1, {}};
 
-    //this is for the initial condition. Must be popped as soon as there is an actual ready to be processed
-    ready_q.push_back({-1, nullptr, 0, -1, {}});
-    this->myWorker = ready_q.front();
-
-
-    // Thread 0: signals other threads when work is ready
-    workers[0] = std::thread([&]{
-        while (this->runThreads){
+    // All threads sleep until work is available
+    for (int i = 0; i < this->numThreads; i++) {
+        workers[i] = std::thread([&, i]{
             int ind = -1;
+            while (this->runThreads){
+                // Request mutex
+                std::unique_lock<std::mutex> lk(*this->mutex_);
 
-            // Check if any work is available
-            this->mutex_->lock();
-            if (this->myWorker.num_tasks >= 0)
-                ind = this->myWorker.num_tasks--;
-            this->mutex_->unlock();
-
-            // If work available, run task
-            if (ind >= 0) {
-                if (ind > 0) this->work_avail_cond_->notify_all();
-                this->myWorker.runnable->runTask(ind, this->myWorker.total_num_tasks);
-                this->tasksDone.fetch_add(1);
-                // Notify caller function if done condition is met
-                if (this->tasksDone.load() == this->myWorker.total_num_tasks){
-                    printf("TaskID being popped %d \n",ready_q.front().task_id);
-                    ready_q.pop_front();//done with this task;
-                    if (ready_q.empty()) //this means no more tasks are left to be done
-                        this->tasks_done_cond_->notify_all();
-                    else {
-                        this->myWorker = ready_q.front();
+                // Increment tasksDone if previous iteration completed task
+                if (ind >= 0) {
+                    this->tasksDone++;
+                    // Check whether this task launch is fully completed
+                    if (this->tasksDone == this->myWorker.total_num_tasks) {
+                        ready_q.pop_front();
+                        this->tasksDone = 0;
+                        if (ready_q.empty()) {
+                            this->myWorker = {-1, nullptr, 0, -1, {}};
+                            lk.unlock();
+                            this->tasks_done_cond_->notify_all();
+                            lk.lock();
+                        } else {
+                            this->myWorker = ready_q.front();
+                        }
                     }
                 }
-            }
-        }
-    });
 
-    // All other threads wait for signal from Thread 0
-    for (int i = 1; i < this->numThreads; i++) {
-        workers[i] = std::thread([&, i]{
-            std::unique_lock<std::mutex> lk(*this->mutex_);
-            lk.unlock();
-            while (this->runThreads){
-                int ind = -1;
-
-                // Check if any work is available
-                lk.lock();
-                this->threadsDone.fetch_add(1);
+                // Poll for new work available
                 while (this->myWorker.num_tasks < 0 && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
                 }
-                this->threadsDone.fetch_sub(1);
+
+                // Assign task index to run
                 ind = this->myWorker.num_tasks--;
                 lk.unlock();
 
                 // If work available, run task
                 if (ind >= 0) {
                     this->myWorker.runnable->runTask(ind, this->myWorker.total_num_tasks);
-                    this->tasksDone.fetch_add(1);
-                    // Notify caller function if done condition is met
-                    if (this->tasksDone.load() == this->myWorker.total_num_tasks){
-                        printf("TaskID being popped %d \n",ready_q.front().task_id);
-                        ready_q.pop_front();//done with this task;
-                        if (ready_q.empty())
-                            this->tasks_done_cond_->notify_all();
-                        else {
-                            this->myWorker = ready_q.front();
-                        }
-                    }
-
                 }
             }
         });
@@ -245,10 +215,9 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // method in Parts A and B.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-    this->lk_main_thread = std::unique_lock<std::mutex> {*this->mutex_};
+
     std::vector<TaskID>* deps = nullptr;
     runAsyncWithDeps(runnable, num_total_tasks, *deps);
-    this->myWorker = ready_q.front();
 
     sync();
 }
@@ -261,15 +230,34 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     // TODO: CS149 students will implement this method in Part B.
     //
 
-    this->tasksDone = 0;
-    ready_q.push_back({this->taskId++, runnable, num_total_tasks, num_total_tasks-1, &deps});
-    if(ready_q.front().task_id == -1) {
-        printf("TaskID being popped %d \n",ready_q.front().task_id);
-        ready_q.pop_front();//popping the inital element that was added for initial values
-        this->myWorker = ready_q.front();//this has to be done only the first time, correspondingly this will be assigned when the task finishes
-    }
+    // Prepare new entry to work queues
+    WorkerQ newTask;
+    newTask.task_id = this->taskId++;
+    newTask.runnable = runnable;
+    newTask.total_num_tasks = num_total_tasks;
+    newTask.num_tasks = num_total_tasks-1;
+    newTask.deps = &deps;
 
-    return 0;
+    this->mutex_->lock();
+    // Check for any matches in dependency list in ready_q or wait_q
+    // TODO
+    bool dependencyFound = 0;
+
+    // Assign to queue
+    if (dependencyFound)
+        wait_q.push_back(newTask);
+    else {
+        ready_q.push_back(newTask);
+        if (ready_q.size() == 1)
+            this->myWorker = ready_q.front();
+    }
+    this->mutex_->unlock();
+
+    // Wake up threads if they are sleeping
+    this->work_avail_cond_->notify_all();
+
+    // Return taskID assigned to this task
+    return newTask.task_id;
 }
 
 void TaskSystemParallelThreadPoolSleeping::sync() {
@@ -279,12 +267,15 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     //
 
     // Put run() to sleep until all tasks are done
-    this->tasks_done_cond_->wait(this->lk_main_thread);
+    std::unique_lock<std::mutex> lk(*this->mutex_);
+    while (ready_q.size() > 0 || wait_q.size() > 0) {
+        this->tasks_done_cond_->wait(lk);
+    }
 
-    // // Once awake, finish run()
+    // Once awake, finish run()
     this->myWorker.runnable = nullptr;
     
-    lk_main_thread.unlock();
+    lk.unlock();
 
     return;
 }

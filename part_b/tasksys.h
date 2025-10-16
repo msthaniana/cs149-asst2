@@ -80,12 +80,12 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::mutex* mutex_;
         std::thread* workers;
         bool runThreads;
-        std::atomic<int> tasksDone;
-        std::atomic<int> threadsDone;
+        int tasksDone;
         std::condition_variable* work_avail_cond_;
         std::condition_variable* tasks_done_cond_;
         std::unique_lock<std::mutex> lk_main_thread;
         int taskId;
+        std::list<WorkerQ> wait_q;
         std::list<WorkerQ> ready_q;
         WorkerQ myWorker;
 
