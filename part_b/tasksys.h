@@ -64,7 +64,8 @@ typedef struct {
     TaskID task_id;
     IRunnable* runnable;
     int total_num_tasks;
-    int num_tasks;
+    int num_tasks_in_process;
+    int num_tasks_finished;
     const std::vector<TaskID>* deps;
 } WorkerQ;
 
@@ -80,7 +81,6 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         std::mutex* mutex_;
         std::thread* workers;
         bool runThreads;
-        int tasksDone;
         std::condition_variable* work_avail_cond_;
         std::condition_variable* tasks_done_cond_;
         std::unique_lock<std::mutex> lk_main_thread;
@@ -94,6 +94,7 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         ~TaskSystemParallelThreadPoolSleeping();
         const char* name();
         void run(IRunnable* runnable, int num_total_tasks);
+        void updateQs();
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
