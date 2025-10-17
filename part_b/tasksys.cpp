@@ -141,26 +141,19 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 
 void TaskSystemParallelThreadPoolSleeping::updateQs(){
 
-    //This logic has no point right now as I am not populating the wait_q TODO convert this into a function
     bool dependant = 0;
-    std::vector<int> task_index_remove;
+    std::vector<WorkerQ> task_index_remove;
     for (WorkerQ temp_worker : wait_q){
         dependant = checkForDependency(ready_q, *temp_worker.deps);
         if (!dependant){
             ready_q.push_back(temp_worker);
             // printf("Task id %d moved from wait to ready - task_id %d \n", wait_q.front().task_id, ready_q.front().task_id);
-            task_index_remove.push_back(temp_worker.task_id);
-            //TODO: need to remove these task_ids frpm wait q or just store the index and then remove them
+            task_index_remove.push_back(temp_worker);
+        }
+        for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
+            wait_q.remove(worker);
         }
     }
-    if (task_index_remove.size() != 0) {
-        for (int idx : task_index_remove){
-            auto it = wait_q.begin();
-            std::advance(it, idx);
-            wait_q.erase(it);//TODO this is no tcorrect will give the wrong result
-        }
-    }
-    //No point logic right now end
 
 }
 
@@ -178,49 +171,57 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->work_avail_cond_ = new std::condition_variable();
     this->tasks_done_cond_ = new std::condition_variable();
     this->taskId = 0;
-    this->myWorker = {-1, nullptr, 0, -1, 0, {}};
+    this->myWorker = {-1, nullptr, 0, -1, 0, {}};//this just holds the dummy that we want it to hold to start
 
     // All threads sleep until work is available
     for (int i = 0; i < this->numThreads; i++) {
         workers[i] = std::thread([&, i]{
             int ind = -1;
+            WorkerQ* my_worker_q_ = &this->myWorker;
             while (this->runThreads){
                 // Request mutex
                 std::unique_lock<std::mutex> lk(*this->mutex_);
 
                 // Increment tasksDone if previous iteration completed task
                 if (ind >= 0) {
-                    this->myWorker.num_tasks_finished++;
+                    my_worker_q_->num_tasks_finished++;
                     // Check whether this task launch is fully completed
-                    if (this->myWorker.num_tasks_finished == this->myWorker.total_num_tasks) {
-                        ready_q.pop_front();
+                    if (my_worker_q_->num_tasks_finished == my_worker_q_->total_num_tasks) {
+                        // printf("task_id = %d finished and first element task_id = %d \n",my_worker_q_->task_id, ready_q.front().task_id);
+                        ready_q.remove(*my_worker_q_);
 
-                        updateQs();
+                        // updateQs();//TODO likely need a Q mutex
 
                         if (ready_q.empty()) {
-                            this->myWorker = {-1, nullptr, 0, -1, 0, {}};
+                            my_worker_q_ = &this->myWorker;
                             lk.unlock();
                             this->tasks_done_cond_->notify_all();
                             lk.lock();
-                        } else {
-                            this->myWorker = ready_q.front();
-                            // printf("myWorker task_id is %d \n",myWorker.task_id);
                         }
                     }
                 }
 
+                if (!ready_q.empty()){//select a task to run now. 
+                    auto it = ready_q.begin();
+                    // std::advance(it,(rand()%ready_q.size())); //trying to pick a random value with this - not working //likely failing because of dependancies //TODO i think we would have to do this to get performance
+                    my_worker_q_ = &(*it);
+                }
+
                 // Poll for new work available
-                while (this->myWorker.num_tasks_in_process < 0 && this->runThreads) {
+                while (my_worker_q_->num_tasks_in_process < 0 && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
+                    break;
                 }
 
                 // Assign task index to run
-                ind = this->myWorker.num_tasks_in_process--;
+                ind = my_worker_q_->num_tasks_in_process--;
+
+
                 lk.unlock();
 
                 // If work available, run task
                 if (ind >= 0) {
-                    this->myWorker.runnable->runTask(ind, this->myWorker.total_num_tasks);
+                    my_worker_q_->runnable->runTask(ind, my_worker_q_->total_num_tasks);
                 }
             }
         });
@@ -291,9 +292,6 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     }
     else {
         ready_q.push_back(newTask);
-        // printf("Task id %d pushed to ready \n", newTask.task_id);
-        if (ready_q.size() == 1)
-            this->myWorker = ready_q.front();
     }
     this->mutex_->unlock();
 
@@ -315,9 +313,6 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     while (ready_q.size() > 0 || wait_q.size() > 0) {
         this->tasks_done_cond_->wait(lk);
     }
-
-    // Once awake, finish run()
-    this->myWorker.runnable = nullptr;
     
     lk.unlock();
 

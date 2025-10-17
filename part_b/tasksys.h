@@ -60,13 +60,17 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         void sync();
 };
 
-typedef struct {
+typedef struct WorkerQ {
     TaskID task_id;
     IRunnable* runnable;
     int total_num_tasks;
     int num_tasks_in_process;
     int num_tasks_finished;
     const std::vector<TaskID>* deps;
+    bool operator==(const WorkerQ& other)
+    {
+        return  task_id == other.task_id;
+    }
 } WorkerQ;
 
 /*
