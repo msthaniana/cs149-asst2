@@ -141,18 +141,16 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 
 void TaskSystemParallelThreadPoolSleeping::updateQs(){
 
-    bool dependant = 0;
+    
     std::vector<WorkerQ> task_index_remove;
     for (WorkerQ temp_worker : wait_q){
-        dependant = checkForDependency(ready_q, *temp_worker.deps);
-        if (!dependant){
+        if (!checkForDependency(ready_q, *temp_worker.deps)){
             ready_q.push_back(temp_worker);
-            // printf("Task id %d moved from wait to ready - task_id %d \n", wait_q.front().task_id, ready_q.front().task_id);
             task_index_remove.push_back(temp_worker);
         }
-        for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
-            wait_q.remove(worker);
-        }
+    }
+    for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
+        wait_q.remove(worker);
     }
 
 }
@@ -187,10 +185,9 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     my_worker_q_->num_tasks_finished++;
                     // Check whether this task launch is fully completed
                     if (my_worker_q_->num_tasks_finished == my_worker_q_->total_num_tasks) {
-                        // printf("task_id = %d finished and first element task_id = %d \n",my_worker_q_->task_id, ready_q.front().task_id);
                         ready_q.remove(*my_worker_q_);
 
-                        // updateQs();//TODO likely need a Q mutex
+                        updateQs();//TODO likely need a Q mutex
 
                         if (ready_q.empty()) {
                             my_worker_q_ = &this->myWorker;
@@ -201,7 +198,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     }
                 }
 
-                if (!ready_q.empty()){//select a task to run now. 
+                if (!ready_q.empty()){//select a task to run now.
                     auto it = ready_q.begin();
                     // std::advance(it,(rand()%ready_q.size())); //trying to pick a random value with this - not working //likely failing because of dependancies //TODO i think we would have to do this to get performance
                     my_worker_q_ = &(*it);
@@ -210,6 +207,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 // Poll for new work available
                 while (my_worker_q_->num_tasks_in_process < 0 && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
+                    if (ready_q.size() == 0 && wait_q.size() == 0) return;
                     break;
                 }
 
@@ -280,17 +278,13 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     newTask.num_tasks_finished = 0;
     newTask.deps = &deps;
 
-    this->mutex_->lock();
-    // Check for any matches in dependency list in ready_q or wait_q
-    // bool dependencyFound = checkForDependency(ready_q, deps);//TODO see why this is failing
-    bool dependencyFound =0;
 
     // Assign to queue
-    if (dependencyFound){
+    if (!ready_q.empty()){
         // printf("Task id %d pushed to wait \n", newTask.task_id);
         wait_q.push_back(newTask);
     }
-    else {
+    else {//if not this way we would have to check the dependancies in both wait and ready
         ready_q.push_back(newTask);
     }
     this->mutex_->unlock();
