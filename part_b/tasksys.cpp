@@ -123,12 +123,12 @@ void TaskSystemParallelThreadPoolSpinning::sync() {
  */
 
  bool checkForDependency(std::list<WorkerQ> queue, WorkerQ currentWorker){
-    printf("deps size = %d \n",currentWorker.deps->size());
+    //printf("deps size = %d \n",currentWorker.deps->size());
     if (queue.empty() || currentWorker.deps->size() == 0) return 0;
     // for (TaskID dep_task_id_ : *currentWorker.deps){
     for (int i = 0 ; i < currentWorker.deps->size() ; i++){
         int dep_task_id_ = currentWorker.deps->at(i);
-        printf("waiting worker %d dependant on %d \n",currentWorker.task_id, dep_task_id_);
+        //printf("waiting worker %d dependant on %d \n",currentWorker.task_id, dep_task_id_);
         for (WorkerQ temp_worker : queue){
             if (dep_task_id_ == temp_worker.task_id) return 1;
         }
@@ -164,17 +164,17 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 //new
 void TaskSystemParallelThreadPoolSleeping::updateQs(){
 
-    
+    //printf("update queues called for ready_q size %d, wait_q size %d\n", this->ready_q.size(), this->wait_q.size());
     std::vector<WorkerQ> task_index_remove;
     std::list<WorkerQ> task_index_not_remove = ready_q;
     if (wait_q.empty()) return;
     
     WorkerQ temp_worker = wait_q.front();
     // for (WorkerQ temp_worker : wait_q){
-        printf("Task id %d pushed to wait with dep = %d \n", temp_worker.task_id, temp_worker.deps->at(0));
+        //printf("Task id %d pushed to wait with dep = %d \n", temp_worker.task_id, temp_worker.deps->at(0));
         if (!checkForDependency(task_index_not_remove, temp_worker)){
             ready_q.push_back(temp_worker);
-            printf("Element %d moved from wait to ready Q not remove size %d ready_q size %d \n", temp_worker.task_id, task_index_not_remove.size(), ready_q.size());
+            //printf("Element %d moved from wait to ready Q not remove size %d ready_q size %d \n", temp_worker.task_id, task_index_not_remove.size(), ready_q.size());
             task_index_remove.push_back(temp_worker);
         }
         task_index_not_remove.push_back(temp_worker);
@@ -199,6 +199,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->work_avail_cond_ = new std::condition_variable();
     this->tasks_done_cond_ = new std::condition_variable();
     this->taskId = 0;
+    this->tasksDone = 0;
     this->myWorker = {-1, nullptr, 0, -1, 0, {}};//this just holds the dummy that we want it to hold to start
 
     // All threads sleep until work is available
@@ -215,51 +216,42 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     my_worker_q_->num_tasks_finished++;
                     // Check whether this task launch is fully completed
                     if (my_worker_q_->num_tasks_finished == my_worker_q_->total_num_tasks) {
-                        printf("thread = %d finished task %d ready_q size %d \n",i, my_worker_q_->task_id, ready_q.size());
+                        //printf("thread = %d finished task %d ready_q size %d \n",i, my_worker_q_->task_id, ready_q.size());
                         ready_q.remove(*my_worker_q_);
-                        printf("thread = %d finished task %d ready_q size %d \n",i, my_worker_q_->task_id, ready_q.size());
-
-                        updateQs();//TODO likely need a Q mutex
-
-                        if (ready_q.empty()) {
-                            my_worker_q_ = &this->myWorker;
+                        //printf("thread = %d finished task %d ready_q size %d \n",i, my_worker_q_->task_id, ready_q.size());
+                        my_worker_q_ = &this->myWorker;
+                        this->tasksDone++;
+			//printf("thread = %d tasksDone update tasksDone=%d taskId=%d\n", i, this->tasksDone, this->taskId);
+                        if (this->tasksDone == this->taskId) {
                             lk.unlock();
                             this->tasks_done_cond_->notify_all();
                             lk.lock();
                         } else {
-                            my_worker_q_ = &ready_q.front();
-                            printf("thread = %d new task %d \n",i, my_worker_q_->task_id);
+                            updateQs();
                         }
                     }
                 }
 
                 // Poll for new work available
+                ind = -1;
                 while (ready_q.empty() && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
-                    if (ready_q.size() == 0 && wait_q.size() == 0) my_worker_q_ = &this->myWorker;
-                    else my_worker_q_ = &ready_q.front();
-                    // printf("task_id %d num_process %d \n",my_worker_q_->task_id , my_worker_q_->num_tasks_in_process);
-                    printf("thread woke up and got id %d \n",my_worker_q_->task_id);
                 }
 
                 // Assign task index to run
-                ind = my_worker_q_->num_tasks_in_process--;
-
-
+                for (WorkerQ& temp_worker : ready_q) {
+                    if (temp_worker.num_tasks_in_process >= 0) {
+                        my_worker_q_ = &temp_worker;
+                        ind = my_worker_q_->num_tasks_in_process--;
+                        //printf("Thread %d found some work! taskID = %d, index = %d\n", i, my_worker_q_->task_id, ind);
+                        break;
+                    }
+                }
                 lk.unlock();
 
                 // If work available, run task
                 if (ind >= 0) {
                     my_worker_q_->runnable->runTask(ind, my_worker_q_->total_num_tasks);
-                    // printf("thread = %d is working task %d \n",i, my_worker_q_->task_id);
-                } else {
-                    // if (ready_q.size() > 1){//select a task to run now.
-                    //     auto it = ready_q.begin();
-                    //     std::advance(it,1);
-                    //     // std::advance(it,(rand()%ready_q.size())); //trying to pick a random value with this - not working //likely failing because of dependancies //TODO i think we would have to do this to get performance
-                    //     my_worker_q_ = &(*it);
-                    //     // printf("thread = %d is moving to task %d \n",i, my_worker_q_->task_id);
-                    // }
                 }
             }
         });
@@ -295,8 +287,8 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
     // tasks sequentially on the calling thread.
     //
 
-    std::vector<TaskID>* deps = nullptr;
-    runAsyncWithDeps(runnable, num_total_tasks, *deps);
+    std::vector<TaskID> deps;
+    runAsyncWithDeps(runnable, num_total_tasks, deps);
 
     sync();
 }
@@ -317,19 +309,17 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     newTask.num_tasks_finished = 0;
     newTask.deps = &deps;
 
-
     // Assign to queue
     this->mutex_->lock(); 
     newTask.task_id = this->taskId++;  
-    if (!ready_q.empty()){
-        wait_q.push_back(newTask);
-        printf("Task id %d pushed to wait with dep = %d \n", newTask.task_id, wait_q.back().deps->at(0));
-    }
-    else {//if not this way we would have to check the dependancies in both wait and ready
+    //printf("taskId = %d, tasksDone=%d\n", this->taskId, this->tasksDone);
+    if (this->tasksDone == this->taskId-1 || deps.size() == 0){
         ready_q.push_back(newTask);
-    }                                              
-    // ready_q.push_back(newTask);
-    // printf("Added %d to the ready Q \n", newTask.task_id);
+        //printf("Task id %d pushed to ready \n", newTask.task_id);
+    } else {
+        wait_q.push_back(newTask);
+        //printf("Task id %d pushed to wait with dep = %d \n", newTask.task_id, wait_q.back().deps->at(0));
+    }
     this->mutex_->unlock();
 
     // Wake up threads if they are sleeping
@@ -347,10 +337,10 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
 
     // Put run() to sleep until all tasks are done
     std::unique_lock<std::mutex> lk(*this->mutex_);
-    while (ready_q.size() > 0 || wait_q.size() > 0) {
+    while (this->tasksDone < this->taskId) {
         this->tasks_done_cond_->wait(lk);
     }
-    // printf("all queues are empty \n");
+     //printf("all queues are empty \n");
     
     lk.unlock();
 

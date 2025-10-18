@@ -87,8 +87,8 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         bool runThreads;
         std::condition_variable* work_avail_cond_;
         std::condition_variable* tasks_done_cond_;
-        std::unique_lock<std::mutex> lk_main_thread;
         int taskId;
+        int tasksDone;
         std::list<WorkerQ> wait_q;
         std::list<WorkerQ> ready_q;
         WorkerQ myWorker;
