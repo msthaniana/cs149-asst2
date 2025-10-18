@@ -185,30 +185,28 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     my_worker_q_->num_tasks_finished++;
                     // Check whether this task launch is fully completed
                     if (my_worker_q_->num_tasks_finished == my_worker_q_->total_num_tasks) {
+                        // printf("thread = %d finished task %d \n",i, my_worker_q_->task_id);
                         ready_q.remove(*my_worker_q_);
 
-                        updateQs();//TODO likely need a Q mutex
+                        // updateQs();//TODO likely need a Q mutex
 
                         if (ready_q.empty()) {
                             my_worker_q_ = &this->myWorker;
                             lk.unlock();
                             this->tasks_done_cond_->notify_all();
                             lk.lock();
+                        } else {
+                            my_worker_q_ = &ready_q.front();
                         }
                     }
                 }
 
-                if (!ready_q.empty()){//select a task to run now.
-                    auto it = ready_q.begin();
-                    // std::advance(it,(rand()%ready_q.size())); //trying to pick a random value with this - not working //likely failing because of dependancies //TODO i think we would have to do this to get performance
-                    my_worker_q_ = &(*it);
-                }
-
                 // Poll for new work available
-                while (my_worker_q_->num_tasks_in_process < 0 && this->runThreads) {
+                while (ready_q.empty() && this->runThreads) {
                     this->work_avail_cond_->wait(lk);
-                    if (ready_q.size() == 0 && wait_q.size() == 0) return;
-                    break;
+                    if (ready_q.size() == 0 && wait_q.size() == 0) my_worker_q_ = &this->myWorker;
+                    else my_worker_q_ = &ready_q.front();
+                    // printf("task_id %d num_process %d \n",my_worker_q_->task_id , my_worker_q_->num_tasks_in_process);
                 }
 
                 // Assign task index to run
@@ -220,6 +218,15 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                 // If work available, run task
                 if (ind >= 0) {
                     my_worker_q_->runnable->runTask(ind, my_worker_q_->total_num_tasks);
+                    // printf("thread = %d is working task %d \n",i, my_worker_q_->task_id);
+                } else {
+                    // if (ready_q.size() > 1){//select a task to run now.
+                    //     auto it = ready_q.begin();
+                    //     std::advance(it,1);
+                    //     // std::advance(it,(rand()%ready_q.size())); //trying to pick a random value with this - not working //likely failing because of dependancies //TODO i think we would have to do this to get performance
+                    //     my_worker_q_ = &(*it);
+                    //     // printf("thread = %d is moving to task %d \n",i, my_worker_q_->task_id);
+                    // }
                 }
             }
         });
@@ -280,13 +287,16 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
 
 
     // Assign to queue
-    if (!ready_q.empty()){
-        // printf("Task id %d pushed to wait \n", newTask.task_id);
-        wait_q.push_back(newTask);
-    }
-    else {//if not this way we would have to check the dependancies in both wait and ready
-        ready_q.push_back(newTask);
-    }
+    // if (!ready_q.empty()){
+    //     // printf("Task id %d pushed to wait \n", newTask.task_id);
+    //     wait_q.push_back(newTask);
+    // }
+    // else {//if not this way we would have to check the dependancies in both wait and ready
+    //     ready_q.push_back(newTask);
+    // }
+    this->mutex_->lock();                                                 
+    ready_q.push_back(newTask);
+    // printf("Added %d to the ready Q \n", newTask.task_id);
     this->mutex_->unlock();
 
     // Wake up threads if they are sleeping
@@ -307,6 +317,7 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     while (ready_q.size() > 0 || wait_q.size() > 0) {
         this->tasks_done_cond_->wait(lk);
     }
+    // printf("all queues are empty \n");
     
     lk.unlock();
 
