@@ -145,16 +145,13 @@ void TaskSystemParallelThreadPoolSleeping::updateQs(){
     std::vector<WorkerQ> task_index_remove;
     std::list<WorkerQ> task_index_not_remove = ready_q;
     
-    // WorkerQ temp_worker = wait_q.front();
-    int max_limit = 0;
     for (WorkerQ temp_worker : wait_q){
         if (!checkForDependency(task_index_not_remove, temp_worker)){
             ready_q.push_back(temp_worker);
             task_index_remove.push_back(temp_worker);
         }
         task_index_not_remove.push_back(temp_worker);
-        max_limit++;
-        if (max_limit > this->numThreads) break;
+        if ( task_index_not_remove.size() > this->numThreads/2) break;
     }
     for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
         wait_q.remove(worker);
