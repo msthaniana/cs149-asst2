@@ -1,5 +1,7 @@
 #include "tasksys.h"
 
+int MAX_LIMIT_FROM_WAIT = 4;
+
 
 IRunnable::~IRunnable() {}
 
@@ -151,7 +153,7 @@ void TaskSystemParallelThreadPoolSleeping::updateQs(){
             task_index_remove.push_back(temp_worker);
         }
         task_index_not_remove.push_back(temp_worker);
-        if ( task_index_not_remove.size() > this->numThreads/2) break;
+        if ( task_index_not_remove.size() >= MAX_LIMIT_FROM_WAIT) break;
     }
     for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
         wait_q.remove(worker);
