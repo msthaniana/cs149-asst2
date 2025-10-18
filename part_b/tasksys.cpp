@@ -123,12 +123,9 @@ void TaskSystemParallelThreadPoolSpinning::sync() {
  */
 
  bool checkForDependency(std::list<WorkerQ> queue, WorkerQ currentWorker){
-    //printf("deps size = %d \n",currentWorker.deps->size());
-    if (queue.empty() || currentWorker.deps->size() == 0) return 0;
-    // for (TaskID dep_task_id_ : *currentWorker.deps){
-    for (int i = 0 ; i < currentWorker.deps->size() ; i++){
-        int dep_task_id_ = currentWorker.deps->at(i);
-        //printf("waiting worker %d dependant on %d \n",currentWorker.task_id, dep_task_id_);
+    if (queue.empty() || currentWorker.deps.size() == 0) return 0;
+    for (int i = 0 ; i < currentWorker.deps.size() ; i++){
+        int dep_task_id_ = currentWorker.deps[i];
         for (WorkerQ temp_worker : queue){
             if (dep_task_id_ == temp_worker.task_id) return 1;
         }
@@ -141,25 +138,6 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
     return "Parallel + Thread Pool + Sleep";
 }
 
-// void TaskSystemParallelThreadPoolSleeping::updateQs(){
-
-    
-//     std::vector<WorkerQ> task_index_remove;
-//     // for (WorkerQ temp_worker : wait_q){
-//     if (wait_q.empty()) return;
-//     WorkerQ temp_worker = wait_q.front();
-//     if (!checkForDependency(ready_q, *temp_worker.deps)){
-//         ready_q.push_back(temp_worker);
-//         printf("Element %d moved from wait to ready Q \n", temp_worker.task_id);
-//         task_index_remove.push_back(temp_worker);
-//     }
-//     // }
-//     for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
-//         wait_q.remove(worker);
-//     }
-
-// }
-
 
 //new
 void TaskSystemParallelThreadPoolSleeping::updateQs(){
@@ -169,16 +147,17 @@ void TaskSystemParallelThreadPoolSleeping::updateQs(){
     std::list<WorkerQ> task_index_not_remove = ready_q;
     if (wait_q.empty()) return;
     
-    WorkerQ temp_worker = wait_q.front();
-    // for (WorkerQ temp_worker : wait_q){
-        //printf("Task id %d pushed to wait with dep = %d \n", temp_worker.task_id, temp_worker.deps->at(0));
+    // WorkerQ temp_worker = wait_q.front();
+    int max_limit = 0;
+    for (WorkerQ temp_worker : wait_q){
         if (!checkForDependency(task_index_not_remove, temp_worker)){
             ready_q.push_back(temp_worker);
-            //printf("Element %d moved from wait to ready Q not remove size %d ready_q size %d \n", temp_worker.task_id, task_index_not_remove.size(), ready_q.size());
             task_index_remove.push_back(temp_worker);
         }
         task_index_not_remove.push_back(temp_worker);
-    // }
+        max_limit++;
+        if (max_limit > this->numThreads) break;
+    }
     for (auto worker : task_index_remove){ //doing seperately to not bother the for loop
         wait_q.remove(worker);
     }
@@ -200,7 +179,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     this->tasks_done_cond_ = new std::condition_variable();
     this->taskId = 0;
     this->tasksDone = 0;
-    this->myWorker = {-1, nullptr, 0, -1, 0, {}};//this just holds the dummy that we want it to hold to start
+    std::vector<TaskID> deps = {};
+    this->myWorker = {-1, nullptr, 0, -1, 0, deps};//this just holds the dummy that we want it to hold to start
 
     // All threads sleep until work is available
     for (int i = 0; i < this->numThreads; i++) {
@@ -216,12 +196,9 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     my_worker_q_->num_tasks_finished++;
                     // Check whether this task launch is fully completed
                     if (my_worker_q_->num_tasks_finished == my_worker_q_->total_num_tasks) {
-                        //printf("thread = %d finished task %d ready_q size %d \n",i, my_worker_q_->task_id, ready_q.size());
                         ready_q.remove(*my_worker_q_);
-                        //printf("thread = %d finished task %d ready_q size %d \n",i, my_worker_q_->task_id, ready_q.size());
                         my_worker_q_ = &this->myWorker;
                         this->tasksDone++;
-			//printf("thread = %d tasksDone update tasksDone=%d taskId=%d\n", i, this->tasksDone, this->taskId);
                         if (this->tasksDone == this->taskId) {
                             lk.unlock();
                             this->tasks_done_cond_->notify_all();
@@ -243,7 +220,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     if (temp_worker.num_tasks_in_process >= 0) {
                         my_worker_q_ = &temp_worker;
                         ind = my_worker_q_->num_tasks_in_process--;
-                        //printf("Thread %d found some work! taskID = %d, index = %d\n", i, my_worker_q_->task_id, ind);
                         break;
                     }
                 }
@@ -307,18 +283,15 @@ TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnabl
     newTask.total_num_tasks = num_total_tasks;
     newTask.num_tasks_in_process = num_total_tasks-1;
     newTask.num_tasks_finished = 0;
-    newTask.deps = &deps;
+    newTask.deps = deps;
 
     // Assign to queue
     this->mutex_->lock(); 
-    newTask.task_id = this->taskId++;  
-    //printf("taskId = %d, tasksDone=%d\n", this->taskId, this->tasksDone);
+    newTask.task_id = this->taskId++;
     if (this->tasksDone == this->taskId-1 || deps.size() == 0){
         ready_q.push_back(newTask);
-        //printf("Task id %d pushed to ready \n", newTask.task_id);
     } else {
         wait_q.push_back(newTask);
-        //printf("Task id %d pushed to wait with dep = %d \n", newTask.task_id, wait_q.back().deps->at(0));
     }
     this->mutex_->unlock();
 
@@ -340,7 +313,6 @@ void TaskSystemParallelThreadPoolSleeping::sync() {
     while (this->tasksDone < this->taskId) {
         this->tasks_done_cond_->wait(lk);
     }
-     //printf("all queues are empty \n");
     
     lk.unlock();
 
