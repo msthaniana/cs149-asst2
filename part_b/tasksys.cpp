@@ -123,9 +123,8 @@ void TaskSystemParallelThreadPoolSpinning::sync() {
  */
 
  bool checkForDependency(std::list<WorkerQ> queue, WorkerQ currentWorker){
-    if (queue.empty() || currentWorker.deps.size() == 0) return 0;
-    for (int i = 0 ; i < currentWorker.deps.size() ; i++){
-        int dep_task_id_ = currentWorker.deps[i];
+    if (queue.empty() || currentWorker.deps.empty()) return 0;
+    for (auto dep_task_id_ : currentWorker.deps){
         for (WorkerQ temp_worker : queue){
             if (dep_task_id_ == temp_worker.task_id) return 1;
         }
@@ -142,10 +141,9 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 //new
 void TaskSystemParallelThreadPoolSleeping::updateQs(){
 
-    //printf("update queues called for ready_q size %d, wait_q size %d\n", this->ready_q.size(), this->wait_q.size());
+    if (wait_q.empty()) return;
     std::vector<WorkerQ> task_index_remove;
     std::list<WorkerQ> task_index_not_remove = ready_q;
-    if (wait_q.empty()) return;
     
     // WorkerQ temp_worker = wait_q.front();
     int max_limit = 0;
