@@ -126,8 +126,8 @@ void TaskSystemParallelThreadPoolSpinning::sync() {
 
  bool checkForDependency(std::list<WorkerQ> queue, WorkerQ currentWorker){
     if (queue.empty() || currentWorker.deps.empty()) return 0;
-    for (auto dep_task_id_ : currentWorker.deps){
-        for (WorkerQ temp_worker : queue){
+    for (WorkerQ temp_worker : queue){
+        for (auto dep_task_id_ : currentWorker.deps){
             if (dep_task_id_ == temp_worker.task_id) return 1;
         }
     }
@@ -194,7 +194,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
                     // Check whether this task launch is fully completed
                     if (my_worker_q_->num_tasks_finished == my_worker_q_->total_num_tasks) {
                         ready_q.remove(*my_worker_q_);
-                        my_worker_q_ = &this->myWorker;
                         this->tasksDone++;
                         if (this->tasksDone == this->taskId) {
                             lk.unlock();
