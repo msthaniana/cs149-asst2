@@ -1,6 +1,6 @@
 #include "tasksys.h"
 
-int MAX_LIMIT_FROM_WAIT = 4;
+int MAX_LIMIT_FROM_WAIT = 8;
 
 
 IRunnable::~IRunnable() {}
